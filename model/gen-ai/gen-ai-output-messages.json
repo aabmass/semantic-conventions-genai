@@ -92,6 +92,23 @@
             "title": "CompactionPart",
             "type": "object"
         },
+        "CustomPart": {
+            "additionalProperties": true,
+            "description": "Represents content that none of the semantic convention part types fit,\nfor example a provider-specific content block.",
+            "properties": {
+                "type": {
+                    "description": "The type of the content captured in this part, namespaced to avoid collisions with part types defined by semantic conventions, for example `anthropic.search_result`.",
+                    "pattern": "^[a-z0-9_]+\\..+$",
+                    "title": "Type",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "type"
+            ],
+            "title": "CustomPart",
+            "type": "object"
+        },
         "FilePart": {
             "additionalProperties": true,
             "description": "Represents an external referenced file sent to the model by file id",
@@ -156,26 +173,33 @@
         },
         "GenericPart": {
             "additionalProperties": true,
-            "description": "Represents a message part that doesn't match any of the other part types.\nThis allows for extensibility with custom message part types.",
+            "description": "Represents a part type defined in a newer version of semantic conventions.\nInstrumentations SHOULD NOT record it; consumers SHOULD expect it.",
             "properties": {
                 "type": {
-                    "const": "generic",
                     "description": "The type of the content captured in this part.",
+                    "not": {
+                        "anyOf": [
+                            {
+                                "enum": [
+                                    "text",
+                                    "tool_call",
+                                    "tool_call_response",
+                                    "server_tool_call",
+                                    "server_tool_call_response",
+                                    "blob",
+                                    "file",
+                                    "uri",
+                                    "reasoning",
+                                    "compaction"
+                                ]
+                            },
+                            {
+                                "pattern": "^[a-z0-9_]+\\..+$"
+                            }
+                        ]
+                    },
                     "title": "Type",
                     "type": "string"
-                },
-                "generic_type": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "default": null,
-                    "description": "The kind of content in this part when no other part type fits, for example the provider's own content block type.",
-                    "title": "Generic Type"
                 }
             },
             "required": [
@@ -275,6 +299,9 @@
                             },
                             {
                                 "$ref": "#/$defs/CompactionPart"
+                            },
+                            {
+                                "$ref": "#/$defs/CustomPart"
                             },
                             {
                                 "$ref": "#/$defs/GenericPart"

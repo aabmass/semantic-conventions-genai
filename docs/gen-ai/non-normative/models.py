@@ -22,9 +22,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, List, Literal, Optional, Union
+from typing import Annotated, Any, List, Literal, Optional, Union, get_args
 
 from pydantic import (
     BaseModel,
@@ -33,6 +34,7 @@ from pydantic import (
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
     RootModel,
+    field_validator,
 )
 from pydantic_core import core_schema
 
@@ -251,21 +253,73 @@ class UriPart(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class GenericPart(BaseModel):
+# Part types defined by semantic conventions never contain a `.`; namespaced
+# types are reserved for custom parts.
+CUSTOM_PART_TYPE_PATTERN = r"^[a-z0-9_]+\..+$"
+
+_KNOWN_PARTS = (
+    TextPart,
+    ToolCallRequestPart,
+    ToolCallResponsePart,
+    ServerToolCallPart,
+    ServerToolCallResponsePart,
+    BlobPart,
+    FilePart,
+    UriPart,
+    ReasoningPart,
+    CompactionPart,
+)
+KNOWN_PART_TYPES = tuple(
+    get_args(part.model_fields["type"].annotation)[0] for part in _KNOWN_PARTS
+)
+
+
+class CustomPart(BaseModel):
     """
-    Represents a message part that doesn't match any of the other part types.
-    This allows for extensibility with custom message part types.
+    Represents content that none of the semantic convention part types fit,
+    for example a provider-specific content block.
     """
 
-    type: Literal["generic"] = Field(
-        description="The type of the content captured in this part."
-    )
-    generic_type: Optional[str] = Field(
-        default=None,
-        description="The kind of content in this part when no other part type fits, for example the provider's own content block type.",
+    type: str = Field(
+        description=(
+            "The type of the content captured in this part, namespaced to avoid "
+            "collisions with part types defined by semantic conventions, "
+            "for example `anthropic.search_result`."
+        ),
+        pattern=CUSTOM_PART_TYPE_PATTERN,
     )
 
     model_config = ConfigDict(extra="allow")
+
+
+class GenericPart(BaseModel):
+    """
+    Represents a part type defined in a newer version of semantic conventions.
+    Instrumentations SHOULD NOT record it; consumers SHOULD expect it.
+    """
+
+    type: str = Field(
+        description="The type of the content captured in this part.",
+        json_schema_extra={
+            "not": {
+                "anyOf": [
+                    {"enum": list(KNOWN_PART_TYPES)},
+                    {"pattern": CUSTOM_PART_TYPE_PATTERN},
+                ]
+            }
+        },
+    )
+
+    model_config = ConfigDict(extra="allow")
+
+    @field_validator("type")
+    @classmethod
+    def _not_known_or_custom(cls, value: str) -> str:
+        if value in KNOWN_PART_TYPES:
+            raise ValueError(f"'{value}' is a known part type")
+        if re.match(CUSTOM_PART_TYPE_PATTERN, value):
+            raise ValueError(f"'{value}' is a custom part type")
+        return value
 
 
 # This Union without discriminator will generate anyOf in JSON schema
@@ -280,7 +334,8 @@ MessagePart = Union[
     UriPart,
     ReasoningPart,
     CompactionPart,
-    GenericPart,  # Catch-all for any other type
+    CustomPart,  # Namespaced, non-semconv part types
+    GenericPart,  # Catch-all for part types added in newer semconv versions
     # Add other message part types here as needed,
     # e.g. structured output, hosted tool call, etc.
 ]
@@ -291,7 +346,8 @@ MessagePart = Union[
 # provider with non-text system instructions.
 SystemInstructionPart = Union[
     TextPart,
-    GenericPart,  # Catch-all for any other type
+    CustomPart,  # Namespaced, non-semconv part types
+    GenericPart,  # Catch-all for part types added in newer semconv versions
     # Add other message part types here as needed
 ]
 

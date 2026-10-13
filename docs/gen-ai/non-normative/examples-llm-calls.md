@@ -848,8 +848,13 @@ sequenceDiagram
 ## Content without a matching part type
 
 When the instrumented API sends or returns content that none of the part types
-fit, record it as a `generic` part. Set `generic_type` to the provider's own
-type for that content and keep the provider's fields.
+fit, record it as a custom part. Set `type` to a namespaced name, such as the
+provider name followed by the provider's own type for that content, and keep the
+provider's fields. Part types defined by semantic conventions never contain a
+`.`, so namespaced types don't collide with them.
+
+Consumers SHOULD expect parts with types they don't recognize, including
+custom parts and part types added in newer versions of semantic conventions.
 
 This example is an Anthropic Messages API call with a `search_result` content
 block:
@@ -865,8 +870,7 @@ block:
       },
       // Anthropic search_result block, recorded with its original fields
       {
-        "type": "generic",
-        "generic_type": "search_result",
+        "type": "anthropic.search_result",
         "source": "https://example.com/docs/otel",
         "title": "OpenTelemetry overview",
         "content": [
